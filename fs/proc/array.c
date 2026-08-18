@@ -344,6 +344,12 @@ static inline void task_cap(struct seq_file *m, struct task_struct *p)
 
 static inline void task_seccomp(struct seq_file *m, struct task_struct *p)
 {
+	/* Backport of upstream 4.10 "proc: report no_new_privs state": emit the
+	 * NoNewPrivs line so /proc/<pid>/status matches a >=4.10 kernel (e.g. Pixel
+	 * gs101/gs201). Value is the real task flag; placed before Seccomp to keep
+	 * the upstream field order. */
+	seq_put_decimal_ull(m, "NoNewPrivs:\t", task_no_new_privs(p));
+	seq_putc(m, '\n');
 #ifdef CONFIG_SECCOMP
 	seq_put_decimal_ull(m, "Seccomp:\t", p->seccomp.mode);
 	seq_putc(m, '\n');
