@@ -1117,9 +1117,35 @@ DECLARE_RWSEM(uts_sem);
  * Instead we map 3.x to 2.6.40+x, so e.g. 3.0 would be 2.6.40
  * And we map 4.x to 2.6.60+x, so 4.0 would be 2.6.60.
  */
+/* App uid range (AID_APP_START); uids carry userid*100000 + appid. */
+#define XROM_APP_START 10000
+#define XROM_USER_OFFSET 100000
+/* GKI release reported to untrusted apps (device spoofs Pixel 10 Pro / A16). */
+#define XROM_SPOOF_RELEASE "6.1.124-android16-9-ga1b2c3d4e5f6"
+
 static int override_release(char __user *release, size_t len)
 {
 	int ret = 0;
+
+	/*
+	 * Anti-detect: report a modern GKI release, but ONLY to untrusted apps
+	 * (appid >= AID_APP_START). Detectors (e.g. com.rem01gaming.disclosure)
+	 * flag a kernel < 5.15 under an Android 15+ build as a "deprecated kernel
+	 * / custom ROM". System/root callers (uid < AID_APP_START) must keep the
+	 * real 4.9 release: the ART userfaultfd GC decision is made in zygote as
+	 * root, and a 4.9 kernel cannot back the uffd features a 6.x report would
+	 * enable -- spoofing there bootloops. Both libc uname() and the raw
+	 * syscall reach here, so the value stays consistent for a given caller.
+	 */
+	if ((from_kuid_munged(current_user_ns(), current_uid()) % XROM_USER_OFFSET)
+			>= XROM_APP_START) {
+		static const char spoof[] = XROM_SPOOF_RELEASE;
+		size_t copy = clamp_t(size_t, len, 1, sizeof(spoof));
+
+		if (copy_to_user(release, spoof, copy))
+			return -EFAULT;
+		return 0;
+	}
 
 	if (current->personality & UNAME26) {
 		const char *rest = UTS_RELEASE;
