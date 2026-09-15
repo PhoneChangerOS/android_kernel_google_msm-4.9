@@ -14,6 +14,11 @@
 #include <linux/utsname.h>
 #include <linux/sysctl.h>
 #include <linux/wait.h>
+#include <linux/cred.h>
+#include <linux/string.h>
+
+/* Keep in sync with kernel/sys.c (override_release) and fs/proc/version.c. */
+#define XROM_SPOOF_RELEASE "6.1.124-android16-9-ga1b2c3d4e5f6"
 
 #ifdef CONFIG_PROC_SYSCTL
 
@@ -51,6 +56,20 @@ static int proc_do_uts_string(struct ctl_table *table, int write,
 	down_read(&uts_sem);
 	memcpy(tmp_data, get_uts(table), sizeof(tmp_data));
 	up_read(&uts_sem);
+
+	/*
+	 * Anti-detect: report the spoofed GKI release via
+	 * /proc/sys/kernel/osrelease to app-uid readers so it stays consistent
+	 * with uname() (kernel/sys.c) and /proc/version (fs/proc/version.c).
+	 * Detectors (com.chunqiunativecheck "Spoofed kernel") cross-check these
+	 * surfaces and flag a mismatch. The osrelease entry is identified by its
+	 * static .data pointer. System/root readers (uid < AID_APP_START) keep
+	 * the real release. Writes are never touched.
+	 */
+	if (!write && table->data == init_uts_ns.name.release &&
+	    (from_kuid_munged(current_user_ns(), current_uid()) % 100000) >= 10000)
+		strlcpy(tmp_data, XROM_SPOOF_RELEASE, sizeof(tmp_data));
+
 	r = proc_dostring(&uts_table, write, buffer, lenp, ppos);
 
 	if (write) {
